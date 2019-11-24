@@ -1,55 +1,64 @@
 import json
 import re
 import requests
-
-
-with open('./access_token.txt', 'r') as token_file:
-    access_token = token_file.read().strip()
+import sys
 
 _BASE_URL = 'https://api.groupme.com/v3/' 
+_GROUP_NAME = 'Nerdery'
 
-groups_url = _BASE_URL + 'groups?omit=memberships&token=' + access_token
-messages_url = _BASE_URL +  'groups/{}/messages?limit=100&token=' + access_token
+def get_token():
+    with open('./access_token.txt', 'r') as token_file:
+        access_token = token_file.read().strip()
+        return access_token
 
-response_json = requests.get(groups_url).json()
-list_of_groups = response_json['response']
+def get_group_id(access_token):
+    groups_url = _BASE_URL + 'groups?omit=memberships&token=' + access_token
+    response_json = requests.get(groups_url).json()
+    list_of_groups = response_json['response']
 
-nerdery_id = None
-for group in list_of_groups:
-    if group['name'] == 'Nerdery':
-        nerdery_id = group['group_id']
-        break
+    group_id = None
+    for group in list_of_groups:
+        if group['name'] == _GROUP_NAME:
+            group_id = group['group_id']
+            break
+    return group_id
 
-messages_json = requests.get(messages_url.format(nerdery_id)).json()
-messages = messages_json['response']['messages']
+def read_messages(group_id, access_token):
+    initial_messages_url = _BASE_URL +  'groups/{}/messages?limit=100&token=' + access_token
+    next_messages_url = _BASE_URL +  'groups/{}/messages?before_id={}&limit=100&token=' + access_token
 
-all_messages = [x['text'] for x in messages]
+    messages_json = requests.get(initial_messages_url.format(group_id)).json()
+    messages = messages_json['response']['messages']
 
-last_id = messages[-1]['id']
+    all_messages = [x['text'] for x in messages]
+    last_id = messages[-1]['id']
 
-while True:
-    next_msg_format = _BASE_URL +  'groups/{}/messages?before_id={}&limit=100&token=' + access_token
-    next_page_of_messages_url  = next_msg_format.format(nerdery_id, last_id)
+    while True:
+        response = requests.get(next_messages_url.format(group_id, last_id))
+        if response.status_code == 304:
+            # This means no more messages to read.
+            break
 
-    response = requests.get(next_page_of_messages_url.format(nerdery_id))
-    if response.status_code == 304:
-        # This means no more messages to read.
-        break
-
-    next_messages = response.json()['response']['messages']
-    all_messages.extend(x['text'] for x in next_messages)
-    last_id = next_messages[-1]['id']
-
-
-left_quotes = r'[", \', \u0022, \u0027, \u2018, \u201c]'
-right_quotes = r'[", \', \u0022, \u0027, \u2019, \u201d]'
-quote_format = '.*' + left_quotes + '.*' + right_quotes + '.*'
-
+        next_messages = response.json()['response']['messages']
+        all_messages.extend(x['text'] for x in next_messages)
+        last_id = next_messages[-1]['id']
+    return all_messages
 
 
 quote_regex = re.compile(r'.*[\"\'\u0022\u0027\u2018\u201c].*[\"\'\u0022\u0027\u2019\u201d].*\s-\s.*',  re.DOTALL)
+def generate_messages(messages):
+    for m in messages:
+        if quote_regex.match(str(m)):
+            yield m
 
-# import pdb; pdb.set_trace()
-for m in all_messages:
-    if quote_regex.match(str(m)):
-        print(m)
+def main():
+    access_token = get_token()
+    group_id = get_group_id(access_token)
+    messages = read_messages(group_id, access_token)
+
+    for msg in generate_messages(messages):
+        print('--------------------------------------')
+        print(msg)
+
+if __name__ ==  "__main__":
+    sys.exit(main())
