@@ -57,8 +57,8 @@ def main():
     messages = read_messages(group_id, access_token)
 
     for msg in generate_messages(messages):
-        print('--------------------------------------')
         print(msg)
+        print('\n')
 
 if __name__ ==  "__main__":
     sys.exit(main())
